@@ -6,15 +6,18 @@
 #
 # Options:
 #   --top-k N               Maximum chunks to retrieve (default: 5)
-#   --threshold N           Similarity threshold 0-1 (default: 0.2)
+#   --threshold N           Similarity threshold 0-1 (default: 0.2, 0.0 for test)
 #   --vector-weight N       Vector similarity weight 0-1 (default: 0.3)
 #   --page N                Page number (default: 1)
 #   --size N                Results per page (default: 30)
-#   --dataset-ids "id1,id2"  Specific dataset IDs to search
+#   --dataset-ids "id1,id2"  Specific dataset IDs to search (basic retrieval)
+#   --kb-id "id"            Dataset ID for retrieval_test (requires login)
 #   --doc-ids "id1,id2"      Limit search to specific documents
 #   --keyword               Enable keyword extraction
 #   --use-kg                Enable knowledge graph retrieval
 #   --rerank MODEL          Use reranking model
+#   --search-id ID          Use saved search configuration
+#   --retrieval-test        Use /api/v1/chunk/retrieval_test (requires login)
 #   --json                  Output raw JSON
 #   --pretty                Pretty print results (default)
 #   --help                  Show this help
@@ -45,10 +48,13 @@ VECTOR_WEIGHT=""
 PAGE=""
 SIZE=""
 DATASET_IDS=""
+KB_ID=""
 DOC_IDS=""
 KEYWORD=""
 USE_KG=""
 RERANK_ID=""
+SEARCH_ID=""
+USE_RETRIEVAL_TEST=""
 OUTPUT_JSON=""
 
 while [[ $# -gt 0 ]]; do
@@ -94,6 +100,18 @@ while [[ $# -gt 0 ]]; do
         --rerank)
             RERANK_ID="$2"
             shift 2
+            ;;
+        --kb-id)
+            KB_ID="$2"
+            shift 2
+            ;;
+        --search-id)
+            SEARCH_ID="$2"
+            shift 2
+            ;;
+        --retrieval-test)
+            USE_RETRIEVAL_TEST="true"
+            shift
             ;;
         --json)
             OUTPUT_JSON="true"
@@ -144,20 +162,48 @@ fi
 
 # Use defaults if not specified
 TOP_K="${TOP_K:-$RAGFLOW_TOP_K}"
-SIMILARITY_THRESHOLD="${SIMILARITY_THRESHOLD:-$RAGFLOW_SIMILARITY_THRESHOLD}"
-DATASET_IDS="${DATASET_IDS:-$RAGFLOW_DATASET_IDS}"
+
+# Determine which API to use
+if [ -n "$USE_RETRIEVAL_TEST" ]; then
+    # Use retrieval_test API
+    API_ENDPOINT="${RAGFLOW_API_URL}/api/v1/chunk/retrieval_test"
+    # Default similarity for retrieval_test is 0.0
+    SIMILARITY_THRESHOLD="${SIMILARITY_THRESHOLD:-0.0}"
+
+    # For retrieval_test, kb_id is required
+    if [ -z "$KB_ID" ] && [ -n "$DATASET_IDS" ] && [ "$DATASET_IDS" != "[]" ]; then
+        # Extract first dataset ID if no kb_id specified
+        KB_ID=$(echo "$DATASET_IDS" | jq -r '.[0]')
+    fi
+
+    if [ -z "$KB_ID" ]; then
+        echo "Error: --kb-id is required for retrieval_test"
+        echo "Usage: $0 --retrieval-test --kb-id <dataset-id> '<query>'"
+        exit 1
+    fi
+else
+    # Use basic retrieval API
+    API_ENDPOINT="${RAGFLOW_API_URL}/api/v1/retrieval"
+    SIMILARITY_THRESHOLD="${SIMILARITY_THRESHOLD:-$RAGFLOW_SIMILARITY_THRESHOLD}"
+    DATASET_IDS="${DATASET_IDS:-$RAGFLOW_DATASET_IDS}"
+fi
 
 # Escape quotes in query for JSON
 ESCAPED_QUERY=$(echo "$QUERY" | sed 's/"/\\"/g')
 
 # Build JSON request body
-JSON_BODY="{\"question\": \"${ESCAPED_QUERY}\""
-
-# Add optional parameters
-if [ -n "$DATASET_IDS" ] && [ "$DATASET_IDS" != "[]" ]; then
-    JSON_BODY="${JSON_BODY}, \"dataset_ids\": ${DATASET_IDS}"
+if [ -n "$USE_RETRIEVAL_TEST" ]; then
+    # retrieval_test uses kb_id
+    JSON_BODY="{\"kb_id\": \"${KB_ID}\", \"question\": \"${ESCAPED_QUERY}\""
+else
+    # Basic retrieval uses dataset_ids
+    JSON_BODY="{\"question\": \"${ESCAPED_QUERY}\""
+    if [ -n "$DATASET_IDS" ] && [ "$DATASET_IDS" != "[]" ]; then
+        JSON_BODY="${JSON_BODY}, \"dataset_ids\": ${DATASET_IDS}"
+    fi
 fi
 
+# Add optional parameters
 if [ -n "$TOP_K" ]; then
     JSON_BODY="${JSON_BODY}, \"top_k\": ${TOP_K}"
 fi
@@ -194,6 +240,10 @@ if [ -n "$RERANK_ID" ]; then
     JSON_BODY="${JSON_BODY}, \"rerank_id\": \"${RERANK_ID}\""
 fi
 
+if [ -n "$SEARCH_ID" ]; then
+    JSON_BODY="${JSON_BODY}, \"search_id\": \"${SEARCH_ID}\""
+fi
+
 JSON_BODY="${JSON_BODY}}"
 
 # Colors for output
@@ -214,8 +264,13 @@ if [ -z "$OUTPUT_JSON" ]; then
     echo ""
 fi
 
+# Show which API is being used
+if [ -z "$OUTPUT_JSON" ] && [ -n "$USE_RETRIEVAL_TEST" ]; then
+    echo -e "${BLUE}Using: ${YELLOW}retrieval_test API (requires login)${NC}"
+fi
+
 # Make API request
-RESPONSE=$(curl -s -X POST "${RAGFLOW_API_URL}/api/v1/retrieval" \
+RESPONSE=$(curl -s -X POST "${API_ENDPOINT}" \
   -H "Authorization: Bearer ${RAGFLOW_API_KEY}" \
   -H "Content-Type: application/json" \
   -d "${JSON_BODY}" 2>&1)
