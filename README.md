@@ -1,26 +1,31 @@
 # OpenClaw RAGFlow Knowledge Skill
 
-🔍 **Connect OpenClaw AI to RAGFlow knowledge bases** for intelligent document retrieval and Q&A.
+🔍 **Connect OpenClaw AI to RAGFlow knowledge bases** with complete retrieval API support.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-1.0.0-green.svg)
+![Version](https://img.shields.io/badge/version-2.0.0-green.svg)
 ![OpenClaw](https://img.shields.io/badge/OpenClaw-compatible-orange.svg)
 
 ## ✨ Features
 
-- 🔍 **Smart Search**: Search across multiple RAGFlow datasets
+- 🔍 **Complete Retrieval API**: Full support for all RAGFlow retrieval parameters
 - 📚 **Dataset Management**: List and inspect available datasets
-- 🎯 **High Accuracy**: Vector similarity + keyword matching
-- 🌏 **Multi-Language**: Supports Chinese and English content
+- 📝 **Chunk Management**: Create, update, delete, and manage document chunks
+- 🎯 **Advanced Search**: Similarity thresholds, vector weights, reranking, knowledge graphs
+- 🔑 **Keyword Extraction**: Enable automatic keyword extraction for better results
+- 🌏 **Multi-Language**: Cross-language retrieval support
+- 📄 **Document Filtering**: Search specific documents or use metadata filters
+- 🌐 **Knowledge Graph**: Optional knowledge graph-enhanced retrieval
 - ⚡ **Fast**: Direct API calls without overhead
 - 🛠️ **Easy Setup**: Just configure environment variables
-- 📊 **Detailed Info**: Get dataset statistics and metadata
+- 🔧 **Helper Scripts**: Bash and Python scripts for manual testing
 
 ## 📋 Prerequisites
 
 1. **OpenClaw** installed and running
 2. **RAGFlow** server running (local or remote)
 3. **RAGFlow API Key** from your RAGFlow console
+4. **curl** and **jq** (for helper scripts)
 
 ## 🚀 Quick Start
 
@@ -33,6 +38,11 @@ cd openclaw-ragflow-skill
 
 # Copy to OpenClaw skills directory
 cp -r SKILL.md ~/.openclaw/workspace/skills/ragflow-knowledge/
+cp -r *.sh ~/.openclaw/workspace/skills/ragflow-knowledge/
+cp -r datasets.py ~/.openclaw/workspace/skills/ragflow-knowledge/
+
+# Make scripts executable
+chmod +x ~/.openclaw/workspace/skills/ragflow-knowledge/*.sh
 ```
 
 ### 2. Configure RAGFlow Access
@@ -43,13 +53,8 @@ Create/Edit `~/.openclaw/workspace/skills/ragflow-knowledge/.env`:
 RAGFLOW_API_URL=http://127.0.0.1
 RAGFLOW_API_KEY=ragflow-your-api-key-here
 RAGFLOW_DATASET_IDS=["dataset-id-1", "dataset-id-2"]
-```
-
-Or set as environment variables:
-
-```bash
-export RAGFLOW_API_URL="http://127.0.0.1"
-export RAGFLOW_API_KEY="ragflow-your-api-key-here"
+RAGFLOW_TOP_K=5
+RAGFLOW_SIMILARITY_THRESHOLD=0.2
 ```
 
 ### 3. Refresh OpenClaw
@@ -72,7 +77,7 @@ AI: [Searches RAGFlow knowledge base and answers with sources]
 
 ## 📖 Usage Examples
 
-### Example 1: Policy Questions
+### Basic Search
 
 ```
 User: What is the vacation policy?
@@ -80,42 +85,41 @@ AI: According to the Employee Handbook, full-time employees are entitled to...
      Source: Employee Handbook 2024 (Similarity: 94%)
 ```
 
-### Example 2: Technical Documentation
+### Advanced Search with Parameters
 
-```
-User: How do I configure the API gateway?
-AI: Based on the Technical Documentation, here are the steps...
-     Source: API Setup Guide (Similarity: 89%)
-```
-
-### Example 3: Product Information
-
-```
-User: What are the specifications of Product X?
-AI: According to the Product Catalog, Product X has...
-     Source: Product Specs (Similarity: 91%)
+```bash
+# Using helper script with all options
+./search.sh --top-k 10 --threshold 0.3 --vector-weight 0.7 --keyword "your query"
 ```
 
-### Example 4: Listing Datasets
+### List Datasets
 
 ```
 User: What datasets do you have?
-AI: [Lists all available RAGFlow datasets]
-     Found 6 datasets:
-     - 醉清风 (1,234 chunks)
-     - 杜克采购文档 (567 chunks)
-     - ...
+AI: Found 6 datasets:
+     - final paper (27 chunks)
+     - overlap (30 chunks)
+     - general (51 chunks)
 ```
 
-### Example 5: Dataset Details
+### Chunk Management
 
-```
-User: Tell me about the "醉清风" dataset
-AI: [Shows detailed information]
-     Dataset: 醉清风
-     ID: 8b29e240dc8611f0b88e02bd655462b6
-     Chunks: 1,234
-     Created: 2026-03-10
+```bash
+# List chunks in a document
+./chunks.sh list doc-id-123
+
+# Create a new chunk
+./chunks.sh create doc-id-123 "This is a new chunk content"
+
+# Update a chunk
+./chunks.sh update doc-id-123 chunk-id-456 "Updated content"
+
+# Enable/disable chunks
+./chunks.sh enable doc-id-123 chunk-id-1,chunk-id-2
+./chunks.sh disable doc-id-123 chunk-id-1
+
+# Delete chunks
+./chunks.sh delete doc-id-123 chunk-id-1,chunk-id-2
 ```
 
 ## ⚙️ Configuration
@@ -126,52 +130,105 @@ AI: [Shows detailed information]
 |----------|----------|---------|-------------|
 | `RAGFLOW_API_URL` | ✅ Yes | - | RAGFlow server URL (e.g., `http://127.0.0.1`) |
 | `RAGFLOW_API_KEY` | ✅ Yes | - | Your RAGFlow API key |
-| `RAGFLOW_DATASET_IDS` | ❌ No | `[]` (all) | Comma-separated dataset IDs to search |
+| `RAGFLOW_DATASET_IDS` | ❌ No | `[]` (all) | JSON array of dataset IDs to search |
 | `RAGFLOW_TOP_K` | ❌ No | `5` | Maximum results to return |
+| `RAGFLOW_SIMILARITY_THRESHOLD` | ❌ No | `0.2` | Minimum similarity score (0-1) |
 
-### Getting Your RAGFlow API Key
+### Retrieval API Parameters
 
-1. Open RAGFlow web console (usually `http://localhost`)
-2. Go to **Profile → API**
-3. Copy your API key
-4. Use it in the configuration above
+#### Core Parameters
 
-### Finding Dataset IDs
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `question` | string | - | Search query or question (required) |
+| `dataset_ids` | array | all | Specific dataset IDs to search |
+| `top_k` | integer | 1024 | Maximum chunks to retrieve |
+| `similarity_threshold` | float | 0.2 | Minimum similarity score (0-1) |
+
+#### Similarity Control
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `vector_similarity_weight` | float | 0.3 | Weight for vector similarity (0-1) |
+| `keywords_similarity_weight` | float | 0.7 | Weight for keyword similarity (0-1) |
+
+#### Pagination
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | integer | 1 | Page number |
+| `size` | integer | 30 | Results per page |
+
+#### Content Filtering
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `doc_ids` | array | all | Limit to specific document IDs |
+| `meta_data_filter` | object | - | Filter by document metadata |
+
+#### Advanced Features
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `keyword` | boolean | false | Extract keywords for better matching |
+| `rerank_id` | string | - | Reranking model ID |
+| `use_kg` | boolean | false | Include knowledge graph |
+| `cross_languages` | array | - | Languages for cross-language search |
+
+## 🔧 Helper Scripts
+
+### search.sh - Advanced Search
 
 ```bash
-curl http://127.0.0.1/api/v1/datasets \
-  -H "Authorization: Bearer YOUR_API_KEY" | jq '.data[].id'
+# Basic search
+./search.sh "your query"
+
+# Advanced options
+./search.sh --top-k 10 --threshold 0.3 "your query"
+./search.sh --vector-weight 0.7 --keyword "your query"
+./search.sh --dataset-ids id1,id2 --use-kg "your query"
+./search.sh --json "your query"  # Output raw JSON
+./search.sh --help  # Show all options
 ```
 
-## 🔧 Manual Testing
-
-Test the skill directly without OpenClaw:
+### datasets.py / datasets.sh - Dataset Management
 
 ```bash
-# Search knowledge base
-cd ~/.openclaw/workspace/skills/ragflow-knowledge
-./search.sh "your search query"
-
-# List all datasets (bash version - requires jq)
-./datasets.sh list
-
 # List all datasets (Python version - cross-platform)
 python datasets.py list
 
-# Get dataset details (bash version - requires jq)
-./datasets.sh info 8b29e240dc8611f0b88e02bd655462b6
-
-# Get dataset details (Python version - cross-platform)
+# Get dataset details
 python datasets.py info 8b29e240dc8611f0b88e02bd655462b6
 
-# Or using curl directly
-curl -X POST "http://127.0.0.1/api/v1/retrieval" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "your search query",
-    "top_k": 5
-  }' | jq
+# List all datasets (Bash version - requires jq)
+./datasets.sh list
+
+# Get dataset details (Bash version)
+./datasets.sh info 8b29e240dc8611f0b88e02bd655462b6
+```
+
+### chunks.sh - Chunk Management
+
+```bash
+# List chunks in a document
+./chunks.sh list doc-id-123
+./chunks.sh list doc-id-123 1 50  # page 1, 50 results
+
+# Get chunk details
+./chunks.sh get chunk-id-456
+
+# Create a new chunk
+./chunks.sh create doc-id-123 "New chunk content"
+
+# Update a chunk
+./chunks.sh update doc-id-123 chunk-id-456 "Updated content"
+
+# Enable/disable chunks
+./chunks.sh enable doc-id-123 chunk-id-1,chunk-id-2
+./chunks.sh disable doc-id-123 chunk-id-1
+
+# Delete chunks
+./chunks.sh delete doc-id-123 chunk-id-1,chunk-id-2
 ```
 
 ## 📁 File Structure
@@ -179,56 +236,82 @@ curl -X POST "http://127.0.0.1/api/v1/retrieval" \
 ```
 ~/.openclaw/workspace/skills/ragflow-knowledge/
 ├── SKILL.md          # Main skill definition (AI reads this)
-├── search.sh         # Helper script for manual testing
+├── search.sh         # Advanced search helper script
+├── datasets.sh       # Dataset manager (Bash + jq)
+├── datasets.py       # Dataset manager (Python - cross-platform)
+├── chunks.sh         # Chunk management script
 ├── .env              # Your local configuration (don't commit!)
+├── .env.example      # Example configuration
 └── README.md         # This file
 ```
 
-## 🆚 Skill vs Plugin
+## 🎯 Search Strategies
 
-### Use This Skill If You Want:
-- ✅ Quick setup without compilation
-- ✅ Easy to modify and customize
-- ✅ Manual control over when to search
-- ✅ Lightweight solution
+### High-Precision Search
 
-### Use the Plugin If You Want:
-- ✅ Automatic context injection before every message
-- ✅ CLI commands (`openclaw ragflow search`)
-- ✅ Advanced error handling and retry logic
-- ✅ Health monitoring
+For questions requiring exact matches:
 
-**Pro Tip**: You can use both! The plugin for production, the skill for testing.
+```bash
+./search.sh --threshold 0.7 --vector-weight 0.7 "exact query"
+```
+
+### Broad Exploration
+
+For discovering related content:
+
+```bash
+./search.sh --threshold 0.1 --top-k 20 "general topic"
+```
+
+### Keyword-Focused Search
+
+For technical queries with specific terms:
+
+```bash
+./search.sh --keyword --vector-weight 0.1 "technical term"
+```
+
+### Knowledge Graph Enhanced
+
+For conceptual relationships:
+
+```bash
+./search.sh --use-kg "conceptual question"
+```
 
 ## 🐛 Troubleshooting
 
-### Skill Not Found
+### Connection Issues
 
 ```bash
-# Check if skill directory exists
-ls -la ~/.openclaw/workspace/skills/ragflow-knowledge/
+# Test RAGFlow connectivity
+curl ${RAGFLOW_API_URL}/api/v1/datasets \
+  -H "Authorization: Bearer ${RAGFLOW_API_KEY}"
 
-# Restart OpenClaw
-openclaw restart
-```
-
-### RAGFlow Connection Failed
-
-```bash
 # Check if RAGFlow is running
 curl http://127.0.0.1
-
-# Check API key
-curl http://127.0.0.1/api/v1/datasets \
-  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-### No Results Returned
+### No Results Found
 
-- Lower the similarity threshold
-- Increase `top_k` parameter
-- Check if documents are uploaded to RAGFlow
-- Verify documents are parsed successfully
+- Lower `similarity_threshold` to 0.1
+- Increase `top_k` to 20 or more
+- Enable `keyword` extraction
+- Try `vector_weight` adjustments
+
+### Script Permission Denied
+
+```bash
+chmod +x ~/.openclaw/workspace/skills/ragflow-knowledge/*.sh
+```
+
+### jq Not Found
+
+Use the Python version instead:
+
+```bash
+python datasets.py list  # Instead of ./datasets.sh list
+```
 
 ## 🤝 Contributing
 
@@ -247,6 +330,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 - **RAGFlow**: https://ragflow.io
 - **RAGFlow Docs**: https://ragflow.io/docs
+- **RAGFlow HTTP API**: https://ragflow.io/docs/dev/http_api_reference
 - **OpenClaw**: https://openclaw.ai
 - **Plugin Version**: https://github.com/redredrrred/openclaw-ragflow
 
