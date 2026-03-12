@@ -1,6 +1,6 @@
 ---
-name: openclaw-ragflow-skill
-description: Search RAGFlow knowledge base, retrieve documents, manage datasets and chunks via HTTP API. Use when user asks about RAGFlow, knowledge base search, document retrieval, or dataset management. Always use scripts in scripts/ directory (search.py, datasets.py, chunks.py, memory.py) instead of writing custom API calls.
+name: ragflow_knowledge
+description: RAGFlow knowledge retrieval via HTTP API - search documents, datasets, chunks, and memories
 license: MIT
 ---
 
