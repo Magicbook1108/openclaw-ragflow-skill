@@ -62,7 +62,7 @@ curl -s -X GET "${RAGFLOW_API_URL}/api/v1/datasets" \
     name: .name,
     id: .id,
     description: .description,
-    chunks: .chunk_num
+    chunks: .chunk_count
   }'
 
 # Or use the helper script
@@ -88,7 +88,7 @@ curl -s -X GET "${RAGFLOW_API_URL}/api/v1/datasets" \
 - **name**: Dataset name
 - **id**: Unique dataset identifier
 - **description**: What the dataset contains
-- **chunk_num**: Number of document chunks
+- **chunk_count**: Number of document chunks
 - **created_at**: When it was created
 - **permission**: Access permissions
 

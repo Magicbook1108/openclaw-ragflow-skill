@@ -71,7 +71,7 @@ list_datasets() {
         "📁 \(.name)\n" +
         "   ID: \(.id)\n" +
         "   Description: \(.description // "No description")\n" +
-        "   Chunk Count: \(.chunk_num // 0) chunks\n" +
+        "   Chunk Count: \(.chunk_count // 0) chunks\n" +
         "   Created: \(.created_at // "Unknown")\n" +
         "   ───────────────────────────────────────"'
 }
@@ -115,13 +115,13 @@ dataset_info() {
         "📁 Name: \(.name)\n" +
         "🆔 ID: \(.id)\n" +
         "📝 Description: \(.description // "No description")\n" +
-        "📊 Chunk Count: \(.chunk_num // 0) chunks\n" +
+        "📊 Chunk Count: \(.chunk_count // 0) chunks\n" +
         "📅 Created: \(.created_at // "Unknown")\n" +
         "🔑 Permission: \(.permission // "Unknown")\n"
     '
 
     # Display chunk count in color
-    CHUNK_NUM=$(echo "$DATASET_INFO" | jq -r '.chunk_num // 0')
+    CHUNK_NUM=$(echo "$DATASET_INFO" | jq -r '.chunk_count // 0')
     if [ "$CHUNK_NUM" -gt 0 ]; then
         echo -e "${GREEN}  ✓ Dataset has ${CHUNK_NUM} document chunks${NC}"
     else
