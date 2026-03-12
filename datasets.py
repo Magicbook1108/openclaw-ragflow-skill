@@ -81,7 +81,7 @@ def list_datasets():
         print(f"[Dir] {ds.get('name', 'Unknown')}")
         print(f"   ID: {ds.get('id', 'N/A')}")
         print(f"   Description: {ds.get('description', 'No description')}")
-        print(f"   Chunk Count: {ds.get('chunk_num', 0)} chunks")
+        print(f"   Chunk Count: {ds.get('chunk_count', 0)} chunks")
         print(f"   Created: {ds.get('created_at', 'Unknown')}")
         print("   ───────────────────────────────────────")
 
@@ -123,13 +123,13 @@ def dataset_info(dataset_id):
     print(f"[Dir] Name: {dataset.get('name', 'Unknown')}")
     print(f"[ID] ID: {dataset.get('id', 'N/A')}")
     print(f"[Desc] Description: {dataset.get('description', 'No description')}")
-    print(f"[Count] Chunk Count: {dataset.get('chunk_num', 0)} chunks")
+    print(f"[Count] Chunk Count: {dataset.get('chunk_count', 0)} chunks")
     print(f"[Date] Created: {dataset.get('created_at', 'Unknown')}")
     print(f"[Key] Permission: {dataset.get('permission', 'Unknown')}")
 
-    chunk_num = dataset.get('chunk_num', 0)
-    if chunk_num > 0:
-        print(f"\n[OK] Dataset has {chunk_num} document chunks")
+    chunk_count = dataset.get('chunk_count', 0)
+    if chunk_count > 0:
+        print(f"\n[OK] Dataset has {chunk_count} document chunks")
     else:
         print("\n[Warning]️  Dataset is empty (no chunks)")
 
