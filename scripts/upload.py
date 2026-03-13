@@ -1,31 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RAGFlow Document Upload
-Upload documents to RAGFlow using session cookie from browser
+Upload one or more documents to a RAGFlow dataset using the current SDK API.
+Usage: python scripts/upload.py <dataset_id> <file1> [file2 ...]
 """
 
+import json
+import mimetypes
 import os
 import sys
-import json
-import urllib.request
+import uuid
+from urllib import request, error
 import io
 
-# Fix Windows UTF-8 output
 if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
+
 def load_env():
-    """Load .env file from parent directory"""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     env_file = os.path.join(script_dir, '..', '.env')
-
-    if not os.path.exists(env_file):
-        openclaw_env = os.path.expanduser('~/.openclaw/workspace/skills/ragflow-knowledge/.env')
-        if os.path.exists(openclaw_env):
-            env_file = openclaw_env
-
     if not os.path.exists(env_file):
         return {}
 
@@ -33,110 +28,90 @@ def load_env():
     with open(env_file, 'r', encoding='utf-8') as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith('#'):
+            if not line or line.startswith('#') or '=' not in line or line.startswith('export'):
                 continue
-            if '=' in line and not line.startswith('export'):
-                key, value = line.split('=', 1)
-                value = value.strip()
-                if value.startswith('[') and value.endswith(']'):
-                    try:
-                        env_vars[key.strip()] = json.loads(value)
-                    except:
-                        env_vars[key.strip()] = value
-                else:
-                    env_vars[key.strip()] = value
-
+            key, value = line.split('=', 1)
+            env_vars[key.strip()] = value.strip()
     return env_vars
 
-def upload_document(session_cookie, dataset_id, file_path):
-    """Upload document to RAGFlow using session cookie"""
-    api_url = os.getenv('RAGFLOW_API_URL', 'http://127.0.0.1')
 
-    if not os.path.exists(file_path):
-        print(f"[Error] File not found: {file_path}")
-        return False
+def build_multipart(file_paths):
+    boundary = '----OpenClawBoundary' + uuid.uuid4().hex
+    body = bytearray()
 
-    filename = os.path.basename(file_path)
+    for file_path in file_paths:
+        filename = os.path.basename(file_path)
+        mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+        with open(file_path, 'rb') as f:
+            content = f.read()
 
-    # Read file content
-    with open(file_path, 'rb') as f:
-        file_content = f.read()
+        body.extend(f'--{boundary}\r\n'.encode())
+        body.extend(
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode()
+        )
+        body.extend(f'Content-Type: {mime}\r\n\r\n'.encode())
+        body.extend(content)
+        body.extend(b'\r\n')
 
-    # Create multipart/form-data boundary
-    boundary = '----WebKitFormBoundary' + os.urandom(16).hex()
+    body.extend(f'--{boundary}--\r\n'.encode())
+    return boundary, bytes(body)
 
-    # Build request body
-    body = (
-        f'------{boundary}\r\n'
-        f'Content-Disposition: form-data; name="kb_id"\r\n\r\n'
-        f'{dataset_id}\r\n'
-        f'------{boundary}\r\n'
-        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-        f'Content-Type: application/octet-stream\r\n\r\n'
-    ).encode('utf-8')
 
-    body += file_content
-    body += f'\r\n------{boundary}--\r\n'.encode('utf-8')
+def upload_documents(dataset_id, file_paths):
+    env = load_env()
+    api_url = env.get('RAGFLOW_API_URL', 'http://127.0.0.1').rstrip('/')
+    api_key = env.get('RAGFLOW_API_KEY', '')
 
-    # Make request
-    url = f"{api_url}/api/v1/document/upload"
-    req = urllib.request.Request(url, data=body, method='POST')
+    if not api_key:
+        print('[Error] RAGFLOW_API_KEY not set in .env')
+        return 1
 
-    # Set headers
-    req.add_header('Content-Type', f'multipart/form-data; boundary=----{boundary}')
-    req.add_header('Cookie', session_cookie)
+    missing = [p for p in file_paths if not os.path.exists(p)]
+    if missing:
+        print('[Error] File(s) not found:')
+        for p in missing:
+            print(f'  - {p}')
+        return 1
+
+    boundary, data = build_multipart(file_paths)
+    url = f'{api_url}/api/v1/datasets/{dataset_id}/documents'
+    req = request.Request(url, data=data, method='POST')
+    req.add_header('Authorization', f'Bearer {api_key}')
+    req.add_header('Content-Type', f'multipart/form-data; boundary={boundary}')
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            if result.get('code') == 0:
-                print(f"[OK] File uploaded successfully!")
-                print(f"     Result: {result.get('data', [])}")
-                return True
-            else:
-                print(f"[Error] Upload failed: {result.get('message', 'Unknown error')}")
-                return False
-    except urllib.error.HTTPError as e:
-        print(f"[Error] HTTP Error {e.code}: {e.reason}")
-        return False
+        with request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode('utf-8'))
+    except error.HTTPError as e:
+        print(f'[Error] HTTP {e.code}: {e.reason}')
+        try:
+            print(e.read().decode('utf-8'))
+        except Exception:
+            pass
+        return 1
     except Exception as e:
-        print(f"[Error] Upload failed: {e}")
-        return False
+        print(f'[Error] Upload failed: {e}')
+        return 1
 
-def main():
-    if len(sys.argv) < 3:
-        print("RAGFlow Document Upload (requires browser session)")
-        print("")
-        print("Usage: python upload.py <dataset_id> <file_path>")
-        print("")
-        print("Get session cookie from browser:")
-        print("1. Login to RAGFlow in your browser")
-        print("2. Open Developer Tools (F12)")
-        print("3. Go to Application > Cookies")
-        print("4. Find the session cookie (usually 'session' or 'user_session')")
-        print("5. Copy the cookie value")
-        print("")
-        print("Set environment variable:")
-        echo "export RAGFLOW_SESSION_COOKIE='your-cookie-here'"
-        return
+    if result.get('code') != 0:
+        print(f"[Error] Upload failed: {result.get('message', 'unknown error')}")
+        return 1
 
-    dataset_id = sys.argv[1]
-    file_path = sys.argv[2]
+    docs = result.get('data', [])
+    print(f'[OK] Uploaded {len(docs)} document(s) to dataset {dataset_id}')
+    for doc in docs:
+        print(json.dumps({
+            'id': doc.get('id'),
+            'name': doc.get('name'),
+            'dataset_id': doc.get('dataset_id'),
+            'run': doc.get('run'),
+            'chunk_method': doc.get('chunk_method')
+        }, ensure_ascii=False))
+    return 0
 
-    # Get session cookie from environment
-    session_cookie = os.getenv('RAGFLOW_SESSION_COOKIE')
-
-    if not session_cookie:
-        print("[Error] RAGFLOW_SESSION_COOKIE not set!")
-        print("")
-        print("Please set it:")
-        print("  export RAGFLOW_SESSION_COOKIE='your-cookie-here'")
-        print("")
-        print("Or add to .env file:")
-        print("  RAGFLOW_SESSION_COOKIE=your-cookie-here")
-        sys.exit(1)
-
-    upload_document(session_cookie, dataset_id, file_path)
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) < 3:
+        print('Usage: python scripts/upload.py <dataset_id> <file1> [file2 ...]')
+        sys.exit(1)
+    sys.exit(upload_documents(sys.argv[1], sys.argv[2:]))
