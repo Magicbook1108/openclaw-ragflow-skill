@@ -1,155 +1,178 @@
 # RAGFlow Assistant Prompt Library
 
-A collection of commonly used prompts for operating RAGFlow datasets.  
-These prompts cover file upload, parsing control, status inspection, and task troubleshooting.
+Common English prompts for using this RAGFlow skill.
 
----
+This library focuses on:
+- file upload
+- parsing control
+- progress tracking
+- dataset and document inspection
+- troubleshooting
 
-# 1. File Upload
+## File Input
 
-## Upload a file to a dataset
+When asking the assistant to upload files:
+- prefer explicit local file paths such as `/data/reports/q1.pdf`
+- if your client supports it, you can also drag files into the chat
+- direct file paths are more reliable
+- large drag-and-drop uploads may fail
 
-**Prompt**
+## Scope Rules For Progress Requests
 
-Upload this file to the `{dataset_name}` dataset in RAGFlow.
+The skill resolves progress scope by specificity:
+- if no dataset is specified, check all datasets and all documents
+- if a dataset is specified, check all documents in that dataset
+- if document IDs are specified, check only those documents
 
----
+For broad progress requests, the assistant should list currently `RUNNING` documents first.
 
-## Upload a file from a local path
+## Common Prompts
 
-**Prompt**
+### 1. File Upload
 
-Upload the file located at `{file_path}` to the `{dataset_name}` dataset.
+#### Upload a file to a dataset
 
----
+```text
+Upload this file to the "{dataset_name}" dataset in RAGFlow.
+```
 
-# 2. Upload and Start Parsing
+#### Upload a file from a local path
 
-## Upload and parse
+```text
+Upload the file at "{file_path}" to the "{dataset_name}" dataset.
+```
 
-**Prompt**
+#### Upload multiple files from local paths
 
-Upload this file to `{dataset_name}` and start parsing.
+```text
+Upload these files to the "{dataset_name}" dataset:
+{file_path_1}
+{file_path_2}
+{file_path_3}
+```
 
----
+### 2. Upload And Start Parsing
 
-## Upload + parse + progress reporting
+#### Upload and parse
 
-**Prompt**
+```text
+Upload this file to "{dataset_name}" and start parsing.
+```
 
-Upload this file to `{dataset_name}`, start parsing, and report progress every `{interval}` seconds.
+#### Upload, parse, and report progress
 
----
+```text
+Upload this file to "{dataset_name}", start parsing, and report progress every {interval} seconds.
+```
 
-# 3. Parsing Task Control
+#### Upload from a local path, parse, and watch until done
 
-## Parse specific files
+```text
+Upload the file at "{file_path}" to "{dataset_name}", start parsing, and keep reporting progress until it finishes.
+```
 
-**Prompt**
+### 3. Parsing Task Control
 
-Parse these files.
+#### Parse specific files
 
----
+```text
+Start parsing these document IDs in "{dataset_name}":
+{document_id_1}, {document_id_2}
+```
 
-## Re-parse a document
+#### Re-parse a document
 
-**Prompt**
+```text
+Re-parse the document with ID "{document_id}" in dataset "{dataset_name}".
+```
 
-Re-parse the document with `document_id = {document_id}`.
+### 4. Parsing Progress Queries
 
----
+#### Check overall parsing progress
 
-# 4. Parsing Progress Query
-
-## Check the parsing progress of a file
-
-**Prompt**
-
+```text
 Check the parsing progress.
+```
 
----
+#### Check progress for one dataset
 
-## Check parsing progress of all files in a dataset
+```text
+Show the parsing progress of all files in "{dataset_name}".
+```
 
-**Prompt**
+#### Check progress for specific documents
 
-Show the parsing progress of all files in `{dataset_name}`.
+```text
+Show the parsing progress of document IDs "{document_id_1}" and "{document_id_2}" in "{dataset_name}".
+```
 
----
+#### Show only files still being parsed
 
-# 5. Dataset Information
+```text
+Show me all files that are still running.
+```
 
-## List all files in a dataset
+### 5. Dataset Information
 
-**Prompt**
+#### List all files in a dataset
 
-List all files in `{dataset_name}`.
+```text
+List all files in "{dataset_name}".
+```
 
----
+#### Show dataset parsing summary
 
-## Show dataset parsing status summary
+```text
+Show the parsing status summary of "{dataset_name}".
+Include total files, RUNNING, DONE, FAIL, and CANCEL counts.
+```
 
-**Prompt**
+### 6. Troubleshooting
 
-Show the parsing status summary of `{dataset_name}`.
+#### Check why parsing failed
 
-The summary should include:
+```text
+Check why this document failed to parse: "{document_id}" in "{dataset_name}".
+```
 
-- Total number of files
-- RUNNING
-- DONE
-- FAIL
+#### Show document details
 
----
+```text
+Show the parsing details for document ID "{document_id}" in "{dataset_name}".
+```
 
-# 6. Task Troubleshooting
+### 7. Recommended Automation Prompt
 
-## Check why parsing failed
+```text
+Upload the file at "{file_path}" to "{dataset_name}", start parsing, and report progress every 10 seconds until parsing is complete.
+```
 
-**Prompt**
+## Minimal Prompt Set
 
-Check the reason why this document failed to parse.
+If you only need the most useful prompts, start with these:
 
----
+1. `Upload the file at "{file_path}" to "{dataset_name}".`
+2. `Upload the file at "{file_path}" to "{dataset_name}" and start parsing.`
+3. `Check the parsing progress.`
+4. `Show the parsing progress of all files in "{dataset_name}".`
+5. `Check why document "{document_id}" failed to parse in "{dataset_name}".`
 
-## Show detailed information of a document
+## Typical Workflow
 
-**Prompt**
+A standard ingestion flow looks like this:
 
-Show the parsing details of `document_id = {document_id}`.
+1. Upload file
+2. Start parsing
+3. Monitor parsing progress
+4. Review dataset status
+5. Troubleshoot failed documents if needed
 
----
+## What To Provide
 
-# 7. Recommended Automation Prompt
+For best results, include as much of the following as possible:
 
-**Prompt**
-
-Upload this file to `{dataset_name}`, start parsing, and report progress every 10 seconds until parsing is complete.
-
----
-
-# 8. Core Prompt Set
-
-If only the most essential prompts are needed:
-
-1. Upload this file to `{dataset_name}`.
-
-2. Upload this file to `{dataset_name}` and start parsing.
-
-3. Check the parsing progress.
-
-4. Show the parsing status of all files in `{dataset_name}`.
-
-5. Check why parsing failed.
-
----
-
-# 9. Standard RAGFlow Workflow
-
-A typical workflow for document ingestion:
-
-Upload file  
-→ Start parsing  
-→ Monitor parsing progress  
-→ Check dataset status  
-→ Troubleshoot failed tasks
+- dataset name or dataset ID
+- local file path
+- document ID, if you are targeting a specific document
+- polling interval, if you want repeated progress updates
+- whether you want a one-time check or continuous monitoring
