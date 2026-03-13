@@ -7,6 +7,7 @@ This library focuses on:
 - parsing control
 - progress tracking
 - dataset and document inspection
+- dataset and document deletion
 - troubleshooting
 
 ## File Input
@@ -141,7 +142,35 @@ Check why this document failed to parse: "{document_id}" in "{dataset_name}".
 Show the parsing details for document ID "{document_id}" in "{dataset_name}".
 ```
 
-### 7. Recommended Automation Prompt
+### 7. Deletion And Cleanup
+
+#### Delete specific documents from a dataset
+
+```text
+Delete document IDs "{document_id_1}" and "{document_id_2}" from "{dataset_name}".
+```
+
+#### Delete documents by first listing the dataset contents
+
+```text
+List all files in "{dataset_name}", find the matching document IDs, and delete the documents named "{document_name}".
+```
+
+#### Delete a dataset
+
+```text
+Delete the "{dataset_name}" dataset.
+```
+
+#### Delete multiple datasets
+
+```text
+Delete these datasets in RAGFlow:
+"{dataset_name_1}"
+"{dataset_name_2}"
+```
+
+### 8. Recommended Automation Prompt
 
 ```text
 Upload the file at "{file_path}" to "{dataset_name}", start parsing, and report progress every 10 seconds until parsing is complete.
@@ -156,6 +185,7 @@ If you only need the most useful prompts, start with these:
 3. `Check the parsing progress.`
 4. `Show the parsing progress of all files in "{dataset_name}".`
 5. `Check why document "{document_id}" failed to parse in "{dataset_name}".`
+6. `Delete document "{document_id}" from "{dataset_name}".`
 
 ## Typical Workflow
 
@@ -166,6 +196,7 @@ A standard ingestion flow looks like this:
 3. Monitor parsing progress
 4. Review dataset status
 5. Troubleshoot failed documents if needed
+6. Delete documents or datasets when cleanup is needed
 
 ## What To Provide
 
@@ -176,3 +207,9 @@ For best results, include as much of the following as possible:
 - document ID, if you are targeting a specific document
 - polling interval, if you want repeated progress updates
 - whether you want a one-time check or continuous monitoring
+
+For deletion tasks, provide:
+
+- dataset name or dataset ID
+- document ID when deleting documents directly
+- document name only if you want the assistant to list files first and resolve the ID
