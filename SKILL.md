@@ -1,6 +1,6 @@
 ---
 name: ragflow-dataset-ingest
-description: "Use for RAGFlow dataset ingestion tasks: create, list, inspect, or delete datasets; list, upload, or delete documents in a dataset; start parsing uploaded documents; and track parser status through `parse.py` snapshot, watch, or background modes."
+description: "Use for RAGFlow dataset ingestion tasks: create, list, inspect, update, or delete datasets; list, upload, update, or delete documents in a dataset; start parsing uploaded documents; and track parser status through `parse.py` snapshot, watch, or background modes."
 ---
 
 # RAGFlow Dataset Ingest
@@ -13,6 +13,7 @@ Use only the bundled scripts in `scripts/`.
 python scripts/datasets.py create "My Dataset" --description "Optional description"
 python scripts/datasets.py list
 python scripts/datasets.py info DATASET_ID
+python scripts/update_dataset.py DATASET_ID --name "Renamed Dataset"
 ```
 
 1. Create a dataset or confirm the target dataset.
@@ -21,6 +22,7 @@ python scripts/datasets.py info DATASET_ID
 ```bash
 python scripts/upload.py list DATASET_ID --json
 python scripts/upload.py DATASET_ID /path/to/file1 [/path/to/file2 ...]
+python scripts/update_document.py DATASET_ID DOC_ID --name "Renamed Document"
 ```
 
 Upload output returns `document_ids`. Pass those IDs into the next step.
@@ -49,9 +51,11 @@ Support only:
 - create datasets
 - list datasets
 - inspect datasets
+- update datasets
 - delete datasets
 - upload documents to a dataset
 - list documents in a dataset
+- update documents in a dataset
 - delete documents from a dataset
 - start parsing documents in a dataset
 - return one current parser status snapshot
@@ -65,7 +69,7 @@ Do not use this skill for retrieval, chunk editing, memory APIs, or other RAGFlo
 Configure `.env` with:
 
 ```bash
-RAGFLOW_API_URL=base-url-here
+RAGFLOW_BASE_URL=http://127.0.0.1:9380
 RAGFLOW_API_KEY=ragflow-your-api-key-here
 ```
 
@@ -73,8 +77,10 @@ RAGFLOW_API_KEY=ragflow-your-api-key-here
 
 - `GET /api/v1/datasets`
 - `POST /api/v1/datasets`
+- `PUT /api/v1/datasets/<dataset_id>`
 - `DELETE /api/v1/datasets`
 - `POST /api/v1/datasets/<dataset_id>/documents`
+- `PUT /api/v1/datasets/<dataset_id>/documents/<document_id>`
 - `DELETE /api/v1/datasets/<dataset_id>/documents`
 - `POST /api/v1/datasets/<dataset_id>/chunks`
 - `GET /api/v1/datasets/<dataset_id>/documents`
@@ -86,9 +92,11 @@ python scripts/datasets.py create "Example Dataset" --description "Quarterly rep
 python scripts/datasets.py create "Example Dataset" --embedding-model bge-m3 --chunk-method naive --permission me
 python scripts/datasets.py list
 python scripts/datasets.py info DATASET_ID
+python scripts/update_dataset.py DATASET_ID --name "Updated Dataset" --description "Updated description"
 python scripts/datasets.py delete --ids DATASET_ID1,DATASET_ID2 --json
 python scripts/upload.py list DATASET_ID --json
 python scripts/upload.py DATASET_ID ./example.pdf --json
+python scripts/update_document.py DATASET_ID DOC_ID --name "Updated Document" --enabled 1 --json
 python scripts/upload.py delete DATASET_ID --ids DOC_ID1,DOC_ID2 --json
 python scripts/parse.py DATASET_ID DOC_ID1 --json
 python scripts/parse.py DATASET_ID DOC_ID1 --watch --json
@@ -98,7 +106,9 @@ python scripts/parse.py DATASET_ID DOC_ID1 --background --output /tmp/parse-stat
 ## Notes
 
 - Dataset creation supports `--avatar`, `--description`, `--embedding-model`, `--permission`, `--chunk-method`, and `--language`.
+- Dataset update supports explicit flags or `--data` JSON payloads through `scripts/update_dataset.py`.
 - Upload does not start parsing by itself.
+- Document update supports explicit flags or `--data` JSON payloads through `scripts/update_document.py`.
 - Dataset and document deletion are destructive. Require explicit target IDs.
 - Parsing is asynchronous.
 - `parse.py` returns parser status immediately after the start request; use `--watch` for periodic updates or `--background` for a detached watcher.
