@@ -1,117 +1,175 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Upload one or more documents to a RAGFlow dataset using the current SDK API.
-Usage: python scripts/upload.py <dataset_id> <file1> [file2 ...]
-"""
 
-import json
+import argparse
 import mimetypes
 import os
-import sys
+import urllib.error
+import urllib.request
 import uuid
-from urllib import request, error
-import io
+from pathlib import Path
+from typing import Any
 
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-
-
-def load_env():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    env_file = os.path.join(script_dir, '..', '.env')
-    if not os.path.exists(env_file):
-        return {}
-
-    env_vars = {}
-    with open(env_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#') or '=' not in line or line.startswith('export'):
-                continue
-            key, value = line.split('=', 1)
-            env_vars[key.strip()] = value.strip()
-    return env_vars
+from common import (
+    ApiError,
+    ConfigError,
+    ScriptError,
+    configure_stdio_utf8,
+    current_timestamp,
+    decode_json_response,
+    ensure_success,
+    extract_error_message,
+    format_json,
+    load_repo_env,
+    repo_root_from_path,
+    require_api_key,
+    resolve_base_url,
+)
 
 
-def build_multipart(file_paths):
-    boundary = '----OpenClawBoundary' + uuid.uuid4().hex
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Upload one or more documents to a RAGFlow dataset.")
+    parser.add_argument("dataset_id", help="Dataset ID")
+    parser.add_argument("files", nargs="+", help="File paths to upload")
+    parser.add_argument("--json", action="store_true", dest="json_output", help="Print JSON output")
+    parser.add_argument(
+        "--base-url",
+        help="Base URL for the RAGFlow server (priority: --base-url > RAGFLOW_API_URL > RAGFLOW_BASE_URL > HOST_ADDRESS > default)",
+    )
+    return parser.parse_args(argv)
+
+
+def _build_multipart(file_paths: list[str]) -> tuple[str, bytes]:
+    boundary = "----OpenClawBoundary" + uuid.uuid4().hex
     body = bytearray()
 
     for file_path in file_paths:
         filename = os.path.basename(file_path)
-        mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-        with open(file_path, 'rb') as f:
-            content = f.read()
+        mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        with open(file_path, "rb") as file_obj:
+            content = file_obj.read()
 
-        body.extend(f'--{boundary}\r\n'.encode())
+        body.extend(f"--{boundary}\r\n".encode())
         body.extend(
             f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode()
         )
-        body.extend(f'Content-Type: {mime}\r\n\r\n'.encode())
+        body.extend(f"Content-Type: {mime}\r\n\r\n".encode())
         body.extend(content)
-        body.extend(b'\r\n')
+        body.extend(b"\r\n")
 
-    body.extend(f'--{boundary}--\r\n'.encode())
+    body.extend(f"--{boundary}--\r\n".encode())
     return boundary, bytes(body)
 
 
-def upload_documents(dataset_id, file_paths):
-    env = load_env()
-    api_url = env.get('RAGFLOW_API_URL', 'http://127.0.0.1').rstrip('/')
-    api_key = env.get('RAGFLOW_API_KEY', '')
+def _normalize_document(document: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": document.get("id"),
+        "name": document.get("name"),
+        "dataset_id": document.get("dataset_id"),
+        "run": document.get("run"),
+        "chunk_method": document.get("chunk_method"),
+    }
 
-    if not api_key:
-        print('[Error] RAGFLOW_API_KEY not set in .env')
-        return 1
 
-    missing = [p for p in file_paths if not os.path.exists(p)]
+def upload_documents(dataset_id: str, file_paths: list[str], *, base_url: str, api_key: str) -> dict[str, Any]:
+    missing = [path for path in file_paths if not Path(path).exists()]
     if missing:
-        print('[Error] File(s) not found:')
-        for p in missing:
-            print(f'  - {p}')
-        return 1
+        raise ConfigError("File(s) not found: " + ", ".join(missing))
 
-    boundary, data = build_multipart(file_paths)
-    url = f'{api_url}/api/v1/datasets/{dataset_id}/documents'
-    req = request.Request(url, data=data, method='POST')
-    req.add_header('Authorization', f'Bearer {api_key}')
-    req.add_header('Content-Type', f'multipart/form-data; boundary={boundary}')
+    boundary, body = _build_multipart(file_paths)
+    url = f"{base_url}/api/v1/datasets/{dataset_id}/documents"
+    request_obj = urllib.request.Request(url, data=body, method="POST")
+    request_obj.add_header("Authorization", f"Bearer {api_key}")
+    request_obj.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
 
     try:
-        with request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read().decode('utf-8'))
-    except error.HTTPError as e:
-        print(f'[Error] HTTP {e.code}: {e.reason}')
-        try:
-            print(e.read().decode('utf-8'))
-        except Exception:
-            pass
+        with urllib.request.urlopen(request_obj, timeout=120) as response:
+            payload = decode_json_response(response.read())
+    except urllib.error.HTTPError as exc:
+        message = extract_error_message(exc.read())
+        if message:
+            raise ApiError(message) from None
+        raise ApiError(f"HTTP request failed with status {exc.code}.") from None
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise ApiError(f"Upload failed: {reason}") from None
+
+    ensure_success(payload)
+    raw_documents = payload.get("data")
+    if not isinstance(raw_documents, list):
+        raise ScriptError("Upload response missing data list.")
+
+    documents = [_normalize_document(document) for document in raw_documents]
+    return {
+        "dataset_id": dataset_id,
+        "uploaded_at": current_timestamp(),
+        "uploaded_count": len(documents),
+        "document_ids": [document["id"] for document in documents if isinstance(document.get("id"), str)],
+        "documents": documents,
+    }
+
+
+def _format_text(payload: dict[str, Any]) -> str:
+    lines = [
+        f"Dataset: {payload['dataset_id']}",
+        f"Uploaded at: {payload['uploaded_at']}",
+        f"Uploaded: {payload['uploaded_count']} document(s)",
+    ]
+
+    for document in payload["documents"]:
+        lines.extend(
+            [
+                "",
+                f"- {document.get('name') or 'unknown'}",
+                f"  id: {document.get('id') or 'unknown'}",
+                f"  run: {document.get('run') or 'unknown'}",
+                f"  chunk_method: {document.get('chunk_method') or 'unknown'}",
+            ]
+        )
+
+    if payload["document_ids"]:
+        lines.extend(
+            [
+                "",
+                "Next:",
+                f"python scripts/parse.py {payload['dataset_id']} {' '.join(payload['document_ids'])}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    configure_stdio_utf8()
+    load_repo_env(repo_root_from_path(__file__))
+    args = _parse_args(argv)
+
+    try:
+        payload = upload_documents(
+            args.dataset_id,
+            args.files,
+            base_url=resolve_base_url(args.base_url),
+            api_key=require_api_key(),
+        )
+        print(format_json(payload) if args.json_output else _format_text(payload))
+        return 0
+    except ScriptError as exc:
+        if args.json_output:
+            print(
+                format_json(
+                    {
+                        "dataset_id": args.dataset_id,
+                        "uploaded_at": current_timestamp(),
+                        "uploaded_count": 0,
+                        "document_ids": [],
+                        "documents": [],
+                        "error": str(exc),
+                    }
+                )
+            )
+        else:
+            print(f"Error: {exc}")
         return 1
-    except Exception as e:
-        print(f'[Error] Upload failed: {e}')
-        return 1
-
-    if result.get('code') != 0:
-        print(f"[Error] Upload failed: {result.get('message', 'unknown error')}")
-        return 1
-
-    docs = result.get('data', [])
-    print(f'[OK] Uploaded {len(docs)} document(s) to dataset {dataset_id}')
-    for doc in docs:
-        print(json.dumps({
-            'id': doc.get('id'),
-            'name': doc.get('name'),
-            'dataset_id': doc.get('dataset_id'),
-            'run': doc.get('run'),
-            'chunk_method': doc.get('chunk_method')
-        }, ensure_ascii=False))
-    return 0
 
 
-if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print('Usage: python scripts/upload.py <dataset_id> <file1> [file2 ...]')
-        sys.exit(1)
-    sys.exit(upload_documents(sys.argv[1], sys.argv[2:]))
+if __name__ == "__main__":
+    raise SystemExit(main())

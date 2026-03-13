@@ -1,31 +1,38 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Show and poll document parse status for a dataset.
-Usage:
-  python scripts/parse_status.py <dataset_id>
-  python scripts/parse_status.py <dataset_id> --doc-ids DOC1,DOC2 --watch
-"""
 
 import argparse
-import datetime
+import hashlib
 import json
 import os
+import subprocess
 import sys
+import tempfile
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-import io
 
-DEFAULT_BASE_URL = "http://127.0.0.1"
+from common import (
+    ApiError,
+    ConfigError,
+    DataError,
+    ScriptError,
+    configure_stdio_utf8,
+    current_timestamp,
+    ensure_success,
+    format_json,
+    load_repo_env,
+    repo_root_from_path,
+    request_json,
+    require_api_key,
+    resolve_base_url,
+)
+
 DEFAULT_INTERVAL = 10.0
 DEFAULT_TIMEOUT = 1800.0
 DEFAULT_PAGE_SIZE = 100
-HTTP_TIMEOUT = 30
 STATUS_ORDER = ("UNSTART", "RUNNING", "DONE", "FAIL", "CANCEL")
 TERMINAL_STATES = {"DONE", "FAIL", "CANCEL"}
 RUN_STATUS_MAP = {
@@ -37,25 +44,9 @@ RUN_STATUS_MAP = {
 }
 
 
-class ScriptError(Exception):
-    pass
-
-
-class ConfigError(ScriptError):
-    pass
-
-
-class ApiError(ScriptError):
-    pass
-
-
-class DataError(ScriptError):
-    pass
-
-
 class WatchTimeout(ScriptError):
     def __init__(self, timeout_seconds: float, payload: dict[str, Any]):
-        super().__init__(f"Watch timeout after {_format_number(timeout_seconds)} seconds.")
+        super().__init__(f"Watch timeout after {format_number(timeout_seconds)} seconds.")
         self.timeout_seconds = timeout_seconds
         self.payload = payload
 
@@ -69,80 +60,7 @@ class DocumentStatus:
     token_count: int
 
 
-def _current_timestamp() -> str:
-    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def _configure_stdio_utf8() -> None:
-    if sys.platform == 'win32':
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-        return
-    for stream_name in ("stdout", "stderr"):
-        stream = getattr(sys, stream_name, None)
-        if stream is None or not hasattr(stream, "reconfigure"):
-            continue
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            continue
-
-
-def _load_env_file(env_path: Path) -> None:
-    if not env_path.is_file():
-        return
-
-    try:
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        raise ConfigError(f"Failed to read {env_path}: {exc}") from exc
-
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].strip()
-        if "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if not key or key in os.environ:
-            continue
-
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-        os.environ[key] = value
-
-
-def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Show and poll document parse status for a dataset.")
-    parser.add_argument("dataset_id", help="Dataset ID")
-    parser.add_argument("--doc-ids", help="Comma-separated document IDs to monitor")
-    parser.add_argument("--watch", action="store_true", help="Poll until all target documents reach a terminal state")
-    parser.add_argument(
-        "--interval",
-        type=float,
-        default=DEFAULT_INTERVAL,
-        help=f"Polling interval in seconds (default: {int(DEFAULT_INTERVAL)})",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=DEFAULT_TIMEOUT,
-        help=f"Polling timeout in seconds (default: {int(DEFAULT_TIMEOUT)})",
-    )
-    parser.add_argument("--json", action="store_true", dest="json_output", help="Print JSON output")
-    parser.add_argument(
-        "--base-url",
-        help="Base URL for the RAGFlow server (priority: --base-url > RAGFLOW_API_URL > RAGFLOW_BASE_URL > HOST_ADDRESS > default)",
-    )
-    return parser.parse_args(argv)
-
-
-def _parse_doc_ids(raw_value: str | None) -> list[str] | None:
+def parse_doc_ids(raw_value: str | None) -> list[str] | None:
     if raw_value is None:
         return None
 
@@ -160,31 +78,15 @@ def _parse_doc_ids(raw_value: str | None) -> list[str] | None:
     return doc_ids
 
 
+def format_number(value: float) -> str:
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:g}"
+
+
 def _validate_positive(name: str, value: float) -> None:
     if value <= 0:
         raise ConfigError(f"{name} must be greater than 0.")
-
-
-def _resolve_base_url(cli_base_url: str | None) -> str:
-    base_url = (
-        cli_base_url
-        or os.getenv("RAGFLOW_API_URL")
-        or os.getenv("RAGFLOW_BASE_URL")
-        or os.getenv("HOST_ADDRESS")
-        or DEFAULT_BASE_URL
-    ).strip()
-
-    parsed = urllib.parse.urlsplit(base_url)
-    if not parsed.scheme or not parsed.netloc:
-        raise ConfigError("Invalid base URL. Use an absolute URL such as http://127.0.0.1:9380.")
-    return base_url.rstrip("/")
-
-
-def _require_api_key() -> str:
-    api_key = (os.getenv("RAGFLOW_API_KEY") or "").strip()
-    if not api_key:
-        raise ConfigError("RAGFLOW_API_KEY is not configured. Set it in the environment or in the repository .env file.")
-    return api_key
 
 
 def _build_documents_url(base_url: str, dataset_id: str, page: int, page_size: int) -> str:
@@ -193,64 +95,8 @@ def _build_documents_url(base_url: str, dataset_id: str, page: int, page_size: i
     return f"{base_url}/api/v1/datasets/{encoded_dataset_id}/documents?{query}"
 
 
-def _decode_json_response(body: bytes) -> dict[str, Any]:
-    try:
-        payload = json.loads(body.decode("utf-8"))
-    except Exception as exc:
-        raise ApiError("Received a non-JSON response from the server.") from exc
-
-    if not isinstance(payload, dict):
-        raise DataError("Expected a JSON object from the server.")
-    return payload
-
-
-def _extract_error_message(body: bytes) -> str | None:
-    if not body:
-        return None
-    try:
-        payload = json.loads(body.decode("utf-8"))
-    except Exception:
-        return None
-    if isinstance(payload, dict):
-        message = payload.get("message")
-        if isinstance(message, str) and message.strip():
-            return message.strip()
-    return None
-
-
-def _request_json(url: str, api_key: str) -> dict[str, Any]:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-        },
-        method="GET",
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as response:
-            return _decode_json_response(response.read())
-    except urllib.error.HTTPError as exc:
-        body = exc.read()
-        message = _extract_error_message(body)
-        if message:
-            raise ApiError(message) from None
-        raise ApiError(f"HTTP request failed with status {exc.code}.") from None
-    except urllib.error.URLError as exc:
-        reason = getattr(exc, "reason", exc)
-        raise ApiError(f"HTTP request failed: {reason}") from None
-
-
 def _fetch_documents_page(base_url: str, api_key: str, dataset_id: str, page: int, page_size: int) -> tuple[list[dict[str, Any]], int]:
-    url = _build_documents_url(base_url, dataset_id, page, page_size)
-    payload = _request_json(url, api_key)
-
-    code = payload.get("code")
-    if code != 0:
-        message = payload.get("message") or f"API returned code {code}."
-        raise ApiError(str(message))
-
+    payload = ensure_success(request_json(_build_documents_url(base_url, dataset_id, page, page_size), api_key))
     data = payload.get("data")
     if not isinstance(data, dict):
         raise DataError("Response missing data object.")
@@ -333,10 +179,6 @@ def _normalize_document(raw_doc: dict[str, Any]) -> DocumentStatus:
     )
 
 
-def _normalize_documents(raw_docs: list[dict[str, Any]]) -> list[DocumentStatus]:
-    return [_normalize_document(raw_doc) for raw_doc in raw_docs]
-
-
 def _select_documents(documents: list[DocumentStatus], target_ids: list[str] | None) -> list[DocumentStatus]:
     if not target_ids:
         return documents
@@ -358,24 +200,30 @@ def _build_payload(dataset_id: str, documents: list[DocumentStatus]) -> dict[str
 
     return {
         "dataset_id": dataset_id,
-        "checked_at": _current_timestamp(),
+        "checked_at": current_timestamp(),
         "summary": summary,
         "documents": [asdict(document) for document in documents],
         "all_terminal": all(document.run in TERMINAL_STATES for document in documents),
     }
 
 
-def _collect_payload(base_url: str, api_key: str, dataset_id: str, target_ids: list[str] | None) -> dict[str, Any]:
-    raw_documents = _fetch_all_documents(base_url, api_key, dataset_id)
-    documents = _normalize_documents(raw_documents)
-    selected_documents = _select_documents(documents, target_ids)
-    return _build_payload(dataset_id, selected_documents)
+def collect_status_payload(
+    dataset_id: str,
+    target_ids: list[str] | None = None,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> dict[str, Any]:
+    resolved_base_url = base_url or resolve_base_url()
+    resolved_api_key = api_key or require_api_key()
+    raw_documents = _fetch_all_documents(resolved_base_url, resolved_api_key, dataset_id)
+    documents = [_normalize_document(raw_doc) for raw_doc in raw_documents]
+    return _build_payload(dataset_id, _select_documents(documents, target_ids))
 
 
-def _format_text(payload: dict[str, Any]) -> str:
+def format_status_text(payload: dict[str, Any]) -> str:
     summary = payload["summary"]
     documents = payload["documents"]
-
     lines = [
         f"Dataset: {payload['dataset_id']}",
         f"Checked at: {payload['checked_at']}",
@@ -387,33 +235,40 @@ def _format_text(payload: dict[str, Any]) -> str:
         lines.append(f"{status}: {summary[status]}")
 
     for document in documents:
-        lines.extend([
-            "",
-            f"[{document['run']}] {document['name']}",
-            f"id: {document['id']}",
-            f"chunks: {document['chunk_count']}",
-            f"tokens: {document['token_count']}",
-        ])
-
+        lines.extend(
+            [
+                "",
+                f"[{document['run']}] {document['name']}",
+                f"id: {document['id']}",
+                f"chunks: {document['chunk_count']}",
+                f"tokens: {document['token_count']}",
+            ]
+        )
     return "\n".join(lines)
 
 
-def _format_json(payload: dict[str, Any]) -> str:
-    return json.dumps(payload, ensure_ascii=False, indent=2)
-
-
-def _format_number(value: float) -> str:
-    if float(value).is_integer():
-        return str(int(value))
-    return f"{value:g}"
-
-
-def _poll_until_complete(base_url: str, api_key: str, dataset_id: str, target_ids: list[str] | None, interval: float, timeout: float, print_updates: bool) -> dict[str, Any]:
+def watch_status_until_terminal(
+    dataset_id: str,
+    target_ids: list[str] | None = None,
+    *,
+    interval: float = DEFAULT_INTERVAL,
+    timeout: float = DEFAULT_TIMEOUT,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    print_updates: bool = False,
+) -> dict[str, Any]:
+    resolved_base_url = base_url or resolve_base_url()
+    resolved_api_key = api_key or require_api_key()
     started_at = time.monotonic()
     last_signature = None
 
     while True:
-        payload = _collect_payload(base_url, api_key, dataset_id, target_ids)
+        payload = collect_status_payload(
+            dataset_id,
+            target_ids,
+            base_url=resolved_base_url,
+            api_key=resolved_api_key,
+        )
         if print_updates:
             signature = json.dumps(
                 {
@@ -421,14 +276,13 @@ def _poll_until_complete(base_url: str, api_key: str, dataset_id: str, target_id
                     "documents": payload["documents"],
                     "all_terminal": payload["all_terminal"],
                 },
-                sort_keys=True,
                 ensure_ascii=False,
+                sort_keys=True,
             )
-            rendered = _format_text(payload)
             if signature != last_signature:
                 if last_signature is not None:
                     print()
-                print(rendered, flush=True)
+                print(format_status_text(payload), flush=True)
                 last_signature = signature
 
         if payload["all_terminal"]:
@@ -440,6 +294,115 @@ def _poll_until_complete(base_url: str, api_key: str, dataset_id: str, target_id
         time.sleep(interval)
 
 
+def _build_background_paths(dataset_id: str, target_ids: list[str] | None, output_path: Path | None) -> tuple[Path, Path]:
+    if output_path is not None:
+        resolved_output = output_path.expanduser().resolve()
+        resolved_output.parent.mkdir(parents=True, exist_ok=True)
+        return resolved_output, resolved_output.with_suffix(resolved_output.suffix + ".log")
+
+    digest_source = ",".join(target_ids or ["all"])
+    digest = hashlib.sha1(f"{dataset_id}:{digest_source}".encode("utf-8")).hexdigest()[:10]
+    temp_dir = Path(tempfile.gettempdir()) / "ragflow-dataset-ingest"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"parse-status-{dataset_id[:12]}-{digest}-{int(time.time())}.json"
+    resolved_output = temp_dir / filename
+    return resolved_output, resolved_output.with_suffix(".log")
+
+
+def start_background_watch(
+    dataset_id: str,
+    target_ids: list[str] | None = None,
+    *,
+    interval: float = DEFAULT_INTERVAL,
+    timeout: float = DEFAULT_TIMEOUT,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    output_path: Path | None = None,
+) -> dict[str, Any]:
+    resolved_base_url = base_url or resolve_base_url()
+    resolved_api_key = api_key or require_api_key()
+    initial_status = collect_status_payload(
+        dataset_id,
+        target_ids,
+        base_url=resolved_base_url,
+        api_key=resolved_api_key,
+    )
+    resolved_output, resolved_error = _build_background_paths(dataset_id, target_ids, output_path)
+
+    if initial_status["all_terminal"]:
+        return {
+            "dataset_id": dataset_id,
+            "document_ids": target_ids or [],
+            "checked_at": current_timestamp(),
+            "mode": "background",
+            "skipped": True,
+            "pid": None,
+            "output_path": str(resolved_output),
+            "error_path": str(resolved_error),
+            "initial_status": initial_status,
+            "message": "All target documents are already in a terminal state. Background watcher was not started.",
+        }
+
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        dataset_id,
+        "--watch",
+        "--json",
+        "--interval",
+        format_number(interval),
+        "--timeout",
+        format_number(timeout),
+    ]
+    if target_ids:
+        command.extend(["--doc-ids", ",".join(target_ids)])
+    if base_url:
+        command.extend(["--base-url", base_url])
+
+    with resolved_output.open("w", encoding="utf-8") as stdout_file, resolved_error.open("w", encoding="utf-8") as stderr_file:
+        popen_kwargs: dict[str, Any] = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": stdout_file,
+            "stderr": stderr_file,
+            "close_fds": True,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        else:
+            popen_kwargs["start_new_session"] = True
+        process = subprocess.Popen(command, **popen_kwargs)
+
+    return {
+        "dataset_id": dataset_id,
+        "document_ids": target_ids or [],
+        "checked_at": current_timestamp(),
+        "mode": "background",
+        "skipped": False,
+        "pid": process.pid,
+        "output_path": str(resolved_output),
+        "error_path": str(resolved_error),
+        "initial_status": initial_status,
+        "message": "Background watcher started. Read output_path after completion or call parse_status.py again for the current state.",
+    }
+
+
+def _format_background_text(payload: dict[str, Any]) -> str:
+    lines = [
+        f"Dataset: {payload['dataset_id']}",
+        f"Checked at: {payload['checked_at']}",
+        f"Mode: {payload['mode']}",
+        f"PID: {payload['pid'] if payload['pid'] is not None else 'not started'}",
+        f"Output: {payload['output_path']}",
+        f"Log: {payload['error_path']}",
+        "",
+        payload["message"],
+        "",
+        "Initial status:",
+        format_status_text(payload["initial_status"]),
+    ]
+    return "\n".join(lines)
+
+
 def _write_error(message: str, json_output: bool, dataset_id: str | None = None, payload: dict[str, Any] | None = None) -> None:
     if json_output:
         error_payload: dict[str, Any] = {}
@@ -448,49 +411,89 @@ def _write_error(message: str, json_output: bool, dataset_id: str | None = None,
         elif dataset_id:
             error_payload["dataset_id"] = dataset_id
         if "checked_at" not in error_payload:
-            error_payload["checked_at"] = _current_timestamp()
-        error_payload["error"] = message
+            error_payload["checked_at"] = current_timestamp()
         if "timed_out" not in error_payload:
             error_payload["timed_out"] = False
-        print(_format_json(error_payload))
+        error_payload["error"] = message
+        print(format_json(error_payload))
         return
 
     print(f"Error: {message}", file=sys.stderr)
 
 
-def main(argv: list[str] | None = None) -> int:
-    _configure_stdio_utf8()
-    repo_root = Path(__file__).resolve().parents[1]
-    _load_env_file(repo_root / ".env")
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Show, poll, or background-watch document parse status for a dataset.")
+    parser.add_argument("dataset_id", help="Dataset ID")
+    parser.add_argument("--doc-ids", help="Comma-separated document IDs to monitor")
+    parser.add_argument("--watch", action="store_true", help="Poll until all target documents reach a terminal state")
+    parser.add_argument("--background", action="store_true", help="Start a detached watcher and return immediately")
+    parser.add_argument("--output", help="Write background-watch JSON to this file")
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=DEFAULT_INTERVAL,
+        help=f"Polling interval in seconds (default: {int(DEFAULT_INTERVAL)})",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_TIMEOUT,
+        help=f"Polling timeout in seconds (default: {int(DEFAULT_TIMEOUT)})",
+    )
+    parser.add_argument("--json", action="store_true", dest="json_output", help="Print JSON output")
+    parser.add_argument(
+        "--base-url",
+        help="Base URL for the RAGFlow server (priority: --base-url > RAGFLOW_API_URL > RAGFLOW_BASE_URL > HOST_ADDRESS > default)",
+    )
+    return parser.parse_args(argv)
 
+
+def main(argv: list[str] | None = None) -> int:
+    configure_stdio_utf8()
+    load_repo_env(repo_root_from_path(__file__))
     args = _parse_args(argv)
 
     try:
-        target_ids = _parse_doc_ids(args.doc_ids)
+        target_ids = parse_doc_ids(args.doc_ids)
         _validate_positive("--interval", args.interval)
         _validate_positive("--timeout", args.timeout)
-        api_key = _require_api_key()
-        base_url = _resolve_base_url(args.base_url)
+        api_key = require_api_key()
+        base_url = resolve_base_url(args.base_url)
 
-        if args.watch:
-            payload = _poll_until_complete(
-                base_url=base_url,
-                api_key=api_key,
-                dataset_id=args.dataset_id,
-                target_ids=target_ids,
+        if args.background:
+            payload = start_background_watch(
+                args.dataset_id,
+                target_ids,
                 interval=args.interval,
                 timeout=args.timeout,
+                base_url=base_url,
+                api_key=api_key,
+                output_path=Path(args.output) if args.output else None,
+            )
+            print(format_json(payload) if args.json_output else _format_background_text(payload))
+            return 0
+
+        if args.watch:
+            payload = watch_status_until_terminal(
+                args.dataset_id,
+                target_ids,
+                interval=args.interval,
+                timeout=args.timeout,
+                base_url=base_url,
+                api_key=api_key,
                 print_updates=not args.json_output,
             )
             if args.json_output:
-                print(_format_json(payload))
+                print(format_json(payload))
             return 0
 
-        payload = _collect_payload(base_url, api_key, args.dataset_id, target_ids)
-        if args.json_output:
-            print(_format_json(payload))
-        else:
-            print(_format_text(payload))
+        payload = collect_status_payload(
+            args.dataset_id,
+            target_ids,
+            base_url=base_url,
+            api_key=api_key,
+        )
+        print(format_json(payload) if args.json_output else format_status_text(payload))
         return 0
     except WatchTimeout as exc:
         timeout_payload = dict(exc.payload)

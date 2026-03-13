@@ -1,0 +1,4 @@
+interface:
+  display_name: "RAGFlow Dataset Parse"
+  short_description: "Start parsing uploaded RAGFlow documents"
+  default_prompt: "Use $ragflow-dataset-parse to start parsing uploaded RAGFlow documents and return the current parser status."

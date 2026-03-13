@@ -1,0 +1,4 @@
+interface:
+  display_name: "RAGFlow Parser Status"
+  short_description: "Check, poll, or background-track RAGFlow parsing"
+  default_prompt: "Use $ragflow-parser-status to check, poll, or background-monitor RAGFlow parser status for uploaded documents."
