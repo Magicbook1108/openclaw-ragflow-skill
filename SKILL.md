@@ -19,6 +19,8 @@ python scripts/update_dataset.py DATASET_ID --name "Renamed Dataset"
 1. Create a dataset or confirm the target dataset.
 2. Upload files.
 
+When asking the user to provide files, prefer explicit local file paths. If the user's client supports drag-and-drop, they may also drop files into the conversation, but local paths work best and large drag-and-drop uploads may fail.
+
 ```bash
 python scripts/upload.py list DATASET_ID --json
 python scripts/upload.py DATASET_ID /path/to/file1 [/path/to/file2 ...]
@@ -117,6 +119,7 @@ python scripts/parse_status.py DATASET_ID --json
 - Dataset creation supports `--avatar`, `--description`, `--embedding-model`, `--permission`, `--chunk-method`, and `--language`.
 - Dataset update supports explicit flags or `--data` JSON payloads through `scripts/update_dataset.py`.
 - Upload does not start parsing by itself.
+- Prefer local file paths for uploads. Drag-and-drop is acceptable only when the client's UI supports it, and it may fail for large files.
 - Document update supports explicit flags or `--data` JSON payloads through `scripts/update_document.py`.
 - Dataset and document deletion are destructive. Require explicit target IDs.
 - Parsing is asynchronous.

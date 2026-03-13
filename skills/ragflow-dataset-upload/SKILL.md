@@ -18,6 +18,8 @@ python scripts/datasets.py info DATASET_ID
 
 2. List, upload, or delete documents as needed.
 
+When collecting files from the user, prefer explicit local file paths. If the user's client supports it, they may also drag files into the chat, but direct file paths are more reliable and large drag-and-drop uploads may fail.
+
 ```bash
 python scripts/upload.py list DATASET_ID --json
 python scripts/upload.py DATASET_ID /path/to/file1 [/path/to/file2 ...]
@@ -65,6 +67,9 @@ python scripts/upload.py delete DATASET_ID --ids DOC_ID1,DOC_ID2 --json
 ## Notes
 
 - Upload does not start parsing by itself.
+- When asking the user for files, prefer local file paths such as `/data/reports/q1.pdf`.
+- If the user's software supports drag-and-drop, they can also drop files into the conversation, but large files may not upload successfully.
+- File paths are the most reliable option for uploads.
 - Document update maps directly to `PUT /api/v1/datasets/<dataset_id>/documents/<document_id>`.
 - Prefer `list` before delete when the user only knows document names, not IDs.
 - Document deletion is destructive. Require explicit document IDs.
