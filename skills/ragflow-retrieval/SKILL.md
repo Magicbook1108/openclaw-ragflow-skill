@@ -1,6 +1,6 @@
 ---
 name: ragflow-retrieval
-description: Search RAGFlow knowledge base to retrieve relevant documents and chunks. Use when user says "search ragflow", "ragflow 搜索", "查一下ragflow", "ragflow里有什么", "用ragflow找", or asks to look up information from RAGFlow datasets.
+description: Search RAGFlow knowledge base to retrieve relevant documents and chunks. Use when user asks to search RAGFlow knowledge base, query documents, retrieve information from datasets, or perform knowledge base lookups.
 license: MIT
 ---
 
