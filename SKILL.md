@@ -1,5 +1,5 @@
 ---
-name: ragflow-dataset-ingest
+name: ragflow-knowledge
 description: "Use for RAGFlow dataset and retrieval tasks: create, list, inspect, update, or delete datasets; list, upload, update, or delete documents in a dataset; start or stop parsing uploaded documents; check parser status through `parse_status.py`; and retrieve relevant chunks from RAGFlow datasets with `search.py`."
 ---
 
@@ -37,7 +37,12 @@ python scripts/datasets.py delete --ids DATASET_ID1,DATASET_ID2
 python scripts/upload.py delete DATASET_ID --ids DOC_ID1,DOC_ID2
 ```
 
-For document deletion, execute only against explicit document IDs. If the user gives filenames or a fuzzy description, list documents first, resolve exact IDs, and only then run the delete command. Do not perform fuzzy batch delete operations.
+⚠️ **DELETION REQUIRES CONFIRMATION**: Before executing any delete operation (datasets or documents):
+1. List items to be deleted with details (names, IDs, counts)
+2. Ask user for explicit confirmation (e.g., "yes", "confirm", "proceed")
+3. Only proceed after user confirms
+
+For document deletion, execute only against explicit document IDs. If the user gives filenames or a fuzzy description, list documents first, resolve exact IDs, get confirmation, and only then run the delete command. Do not perform fuzzy batch delete operations.
 
 3. Start parsing, or stop parsing when explicitly requested.
 
