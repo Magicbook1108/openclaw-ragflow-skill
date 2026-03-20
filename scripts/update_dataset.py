@@ -107,7 +107,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--base-url",
         help="Base URL for the RAGFlow server "
-        "(priority: --base-url > RAGFLOW_BASE_URL > HOST_ADDRESS > default)",
+        "(priority: --base-url > RAGFLOW_API_URL > default)",
     )
     return parser.parse_args(argv)
 
@@ -115,8 +115,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def _resolve_base_url(cli_base_url: str | None) -> str:
     base_url = (
         cli_base_url
-        or os.getenv("RAGFLOW_BASE_URL")
-        or os.getenv("HOST_ADDRESS")
         or DEFAULT_BASE_URL
     ).strip()
 

@@ -203,8 +203,7 @@ RAGFLOW_DATASET_IDS=["dataset-id-1", "dataset-id-2"]
 - **For security, only `RAGFLOW_*` prefixed variables are loaded** - other credentials in .env are ignored
 - Ensure your `.env` file is properly configured before running any commands
 - **Keep your `.env` file secure** - it contains sensitive API credentials
-- The scripts also support the legacy environment variable `RAGFLOW_BASE_URL` for backward compatibility
-- Supported environment variables in order of priority: `--base-url` CLI flag > `RAGFLOW_API_URL` > `RAGFLOW_BASE_URL` > `HOST_ADDRESS` > default
+- Supported environment variables in order of priority: `--base-url` CLI flag > `RAGFLOW_API_URL` > default
 
 ## Endpoints
 - `GET /api/v1/datasets`

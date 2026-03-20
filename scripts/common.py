@@ -108,8 +108,6 @@ def resolve_base_url(cli_base_url: str | None = None) -> str:
     base_url = (
         cli_base_url
         or os.getenv("RAGFLOW_API_URL")
-        or os.getenv("RAGFLOW_BASE_URL")
-        or os.getenv("HOST_ADDRESS")
         or DEFAULT_BASE_URL
     ).strip()
 
