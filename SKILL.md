@@ -16,7 +16,7 @@ description: "Use for RAGFlow dataset and retrieval tasks: create, list, inspect
 
 2. **Data Transmission**: When you upload files through this skill, they will be transmitted to the RAGFlow server configured in `RAGFLOW_API_URL`. Ensure you trust the destination server.
 
-3. **Environment File**: The scripts automatically load configuration from the repository `.env` file. This file may contain sensitive credentials.
+3. **Environment File**: The scripts automatically load configuration from the repository `.env` file. For security, **only variables with the `RAGFLOW_` prefix are loaded**. Other credentials in the .env file will not be read.
 
 4. **Server Location**: By default, RAGFlow runs locally (`http://127.0.0.1`), but you can configure it to point to any RAGFlow instance.
 
@@ -200,6 +200,7 @@ RAGFLOW_DATASET_IDS=["dataset-id-1", "dataset-id-2"]
 
 **Important Notes**:
 - The scripts automatically load configuration from the repository `.env` file
+- **For security, only `RAGFLOW_*` prefixed variables are loaded** - other credentials in .env are ignored
 - Ensure your `.env` file is properly configured before running any commands
 - **Keep your `.env` file secure** - it contains sensitive API credentials
 - The scripts also support the legacy environment variable `RAGFLOW_BASE_URL` for backward compatibility

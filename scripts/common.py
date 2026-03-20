@@ -93,6 +93,11 @@ def load_repo_env(repo_root: Path) -> None:
         if not key or key in os.environ:
             continue
 
+        # Only load RAGFLOW_ prefixed variables to avoid accidentally loading
+        # unrelated credentials (e.g., AWS keys, GitHub tokens) from the .env file
+        if not key.startswith('RAGFLOW_'):
+            continue
+
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
             value = value[1:-1]
