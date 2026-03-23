@@ -14,6 +14,14 @@ from typing import Any
 
 DEFAULT_BASE_URL = "http://127.0.0.1"
 HTTP_TIMEOUT = 30
+ALLOWED_ENV_KEYS = {
+    "RAGFLOW_API_URL",
+    "RAGFLOW_BASE_URL",
+    "RAGFLOW_API_KEY",
+    "RAGFLOW_DATASET_IDS",
+    "RAGFLOW_TOP_K",
+    "RAGFLOW_SIMILARITY_THRESHOLD",
+}
 
 
 class ScriptError(Exception):
@@ -91,6 +99,8 @@ def load_repo_env(repo_root: Path) -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         if not key or key in os.environ:
+            continue
+        if key not in ALLOWED_ENV_KEYS and not key.startswith("RAGFLOW_"):
             continue
 
         value = value.strip()

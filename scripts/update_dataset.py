@@ -17,72 +17,23 @@
 
 import argparse
 import json
-import os
 import sys
-import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any
 
-DEFAULT_BASE_URL = "http://127.0.0.1:9380"
-HTTP_TIMEOUT = 30
-
-
-class ScriptError(Exception):
-    pass
-
-
-class ConfigError(ScriptError):
-    pass
-
-
-class ApiError(ScriptError):
-    pass
-
-
-class DataError(ScriptError):
-    pass
-
-
-def _configure_stdio_utf8() -> None:
-    for stream_name in ("stdout", "stderr"):
-        stream = getattr(sys, stream_name, None)
-        if stream is None or not hasattr(stream, "reconfigure"):
-            continue
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            continue
-
-
-def _load_env_file(env_path: Path) -> None:
-    if not env_path.is_file():
-        return
-
-    try:
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        raise ConfigError(f"Failed to read {env_path}: {exc}") from exc
-
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].strip()
-        if "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if not key or key in os.environ:
-            continue
-
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-        os.environ[key] = value
+from common import (
+    ConfigError,
+    DataError,
+    ScriptError,
+    configure_stdio_utf8,
+    ensure_success,
+    load_repo_env,
+    repo_root_from_path,
+    request_json,
+    require_api_key,
+    resolve_base_url,
+)
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -107,32 +58,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--base-url",
         help="Base URL for the RAGFlow server "
-        "(priority: --base-url > RAGFLOW_BASE_URL > HOST_ADDRESS > default)",
+        "(priority: --base-url > RAGFLOW_API_URL > RAGFLOW_BASE_URL > HOST_ADDRESS > default)",
     )
     return parser.parse_args(argv)
-
-
-def _resolve_base_url(cli_base_url: str | None) -> str:
-    base_url = (
-        cli_base_url
-        or os.getenv("RAGFLOW_BASE_URL")
-        or os.getenv("HOST_ADDRESS")
-        or DEFAULT_BASE_URL
-    ).strip()
-
-    parsed = urllib.parse.urlsplit(base_url)
-    if not parsed.scheme or not parsed.netloc:
-        raise ConfigError("Invalid base URL. Use an absolute URL such as http://127.0.0.1:9380.")
-    return base_url.rstrip("/")
-
-
-def _require_api_key() -> str:
-    api_key = (os.getenv("RAGFLOW_API_KEY") or "").strip()
-    if not api_key:
-        raise ConfigError(
-            "RAGFLOW_API_KEY is not configured. Set it in the environment or in the repository .env file."
-        )
-    return api_key
 
 
 def _load_json_object(raw_value: str, option_name: str) -> dict[str, Any]:
@@ -183,64 +111,8 @@ def _build_payload(args: argparse.Namespace) -> dict[str, Any]:
 def _build_url(base_url: str, dataset_id: str) -> str:
     encoded_dataset_id = urllib.parse.quote(dataset_id, safe="")
     return f"{base_url}/api/v1/datasets/{encoded_dataset_id}"
-
-
-def _decode_json_response(body: bytes) -> dict[str, Any]:
-    try:
-        payload = json.loads(body.decode("utf-8"))
-    except Exception as exc:
-        raise ApiError("Received a non-JSON response from the server.") from exc
-
-    if not isinstance(payload, dict):
-        raise DataError("Expected a JSON object from the server.")
-    return payload
-
-
-def _extract_error_message(body: bytes) -> str | None:
-    if not body:
-        return None
-    try:
-        payload = json.loads(body.decode("utf-8"))
-    except Exception:
-        return None
-    if isinstance(payload, dict):
-        message = payload.get("message")
-        if isinstance(message, str) and message.strip():
-            return message.strip()
-    return None
-
-
-def _request_json(url: str, api_key: str, payload: dict[str, Any]) -> dict[str, Any]:
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        },
-        method="PUT",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
-            return _decode_json_response(response.read())
-    except urllib.error.HTTPError as exc:
-        body = exc.read()
-        message = _extract_error_message(body)
-        if message:
-            raise ApiError(message) from None
-        raise ApiError(f"HTTP request failed with status {exc.code}.") from None
-    except urllib.error.URLError as exc:
-        reason = getattr(exc, "reason", exc)
-        raise ApiError(f"HTTP request failed: {reason}") from None
-
-
 def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    code = payload.get("code")
-    if code != 0:
-        message = payload.get("message") or f"API returned code {code}."
-        raise ApiError(str(message))
+    payload = ensure_success(payload)
 
     data = payload.get("data")
     if not isinstance(data, dict):
@@ -270,15 +142,21 @@ def _print_summary(payload: dict[str, Any]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    _configure_stdio_utf8()
-    _load_env_file(Path(__file__).resolve().parent.parent / ".env")
+    configure_stdio_utf8()
+    load_repo_env(repo_root_from_path(__file__))
 
     try:
         args = _parse_args(argv)
-        base_url = _resolve_base_url(args.base_url)
-        api_key = _require_api_key()
+        base_url = resolve_base_url(args.base_url)
+        api_key = require_api_key()
         payload = _build_payload(args)
-        response = _request_json(_build_url(base_url, args.dataset_id), api_key, payload)
+        response = request_json(
+            _build_url(base_url, args.dataset_id),
+            api_key,
+            method="PUT",
+            body=json.dumps(payload).encode("utf-8"),
+            content_type="application/json",
+        )
         normalized = _normalize_payload(response)
     except ScriptError as exc:
         print(f"Error: {exc}", file=sys.stderr)

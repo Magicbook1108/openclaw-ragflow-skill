@@ -209,10 +209,15 @@ Do not use this skill for chunk editing, memory APIs, or other RAGFlow capabilit
 Configure `.env` with:
 
 ```bash
-RAGFLOW_BASE_URL=http://127.0.0.1:9380
+RAGFLOW_API_URL=http://127.0.0.1:9380
 RAGFLOW_API_KEY=ragflow-your-api-key-here
 RAGFLOW_DATASET_IDS=["dataset-id-1", "dataset-id-2"]
 ```
+
+`RAGFLOW_API_URL` is the primary base URL setting.
+`RAGFLOW_BASE_URL` is accepted as a legacy fallback for compatibility, but new setups should use `RAGFLOW_API_URL`.
+
+When loading the repository `.env`, the bundled scripts only import `RAGFLOW_` variables into the process environment.
 
 ## Endpoints
 - `GET /api/v1/datasets`

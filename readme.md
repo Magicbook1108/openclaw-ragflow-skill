@@ -13,6 +13,14 @@ This library focuses on:
 - dataset and document deletion
 - troubleshooting
 
+## Environment And Safety
+
+- Configure the skill with `RAGFLOW_API_URL` and `RAGFLOW_API_KEY`
+- `RAGFLOW_BASE_URL` remains supported only as a legacy fallback
+- The bundled scripts only load `RAGFLOW_` variables from the repository `.env`
+- Upload operations read local files you specify and send them to `RAGFLOW_API_URL`
+- Only connect the skill to a server you trust, and only pass file paths you intend to upload
+
 For model listing:
 - default behavior should show only available models
 - default grouping should be by model `type`
